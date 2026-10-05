@@ -213,5 +213,13 @@ Ajouter ici chaque point confirmé par un test dans TouchDesigner, avec la build
   et **tous les `set_menu()` par libellé ont trouvé leur entrée** (types
   d'uniforms, Create Attribs custom/int/float/nb de composantes,
   `maxpointsmode` custom, `pointcountinfo`, TOP to POP, Line Break).
+- **2025.33070** : confirmé par l'image du `debug_overlay` (phase 1) :
+  Analyze POP avec un seul attribut (`inputattrs = P`, `appendattrname` Off)
+  produit bien `Min` / `Max` (lus par `TDIn_Min(1, 0)`) ; Create Attribs
+  float2 custom OK ; GLSL TOP + page Buffers → `TDBuffer_PegUV(i)` et
+  `TDBufferLength_PegUV()` OK ; uniforms déclarés dans le pixel shader OK.
+- L'image par défaut du Movie File In (banane) a un **fond transparent** :
+  toujours penser à l'alpha (TOPs prémultipliés) quand on dérive une valeur
+  d'une image.
 - Dans `onInitTD` d'une extension, les entrées du COMP n'ont pas encore cuit :
   `numPoints()` y vaut 0. Ne pas y faire de contrôle sur les données.

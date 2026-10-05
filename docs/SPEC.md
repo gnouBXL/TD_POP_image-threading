@@ -175,6 +175,10 @@ seule** :
 
 1. Au départ, `R = luminance(image)` (en mode Invert : `1 - luminance`), à la
    résolution de travail. Un pixel sombre signifie « il faut encore du fil ici ».
+   Les pixels **transparents** valent 1 (« rien à dessiner »), avec ou sans
+   Invert : `R = mix(1, luminance ou 1 - luminance, alpha)`. Les TOPs étant
+   prémultipliés, le shader calcule `R = 1 - alpha + lp` (ou `1 - lp` en
+   Invert) avec `lp = luminance(Color.rgb)`.
 2. Chaque segment choisi est **dessiné dans R en l'éclaircissant** :
    `R = min(1, R + a)` le long du segment, où `a` est la contribution d'un fil
    (dérivée de `Lineopacity`).

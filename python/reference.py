@@ -55,17 +55,18 @@ def tie_hash(seed, iteration, candidates):
 # --------------------------------------------------------------------------
 
 def load_luminance(source, resolution):
-    """Return an (H, W) float32 array in [0, 1]. Row 0 is the BOTTOM of the
-    image, so that +Y goes up like a TouchDesigner texture's V."""
+    """Return (lum, alpha), two (H, W) float32 arrays in [0, 1]. Row 0 is the
+    BOTTOM of the image, so that +Y goes up like a TouchDesigner texture's V."""
     if source in SYNTHETIC:
-        img = SYNTHETIC[source](resolution)
+        img = SYNTHETIC[source](resolution).convert("LA")
     else:
-        img = Image.open(source).convert("L")
+        img = Image.open(source).convert("LA")
     w, h = img.size
     s = resolution / max(w, h)
     img = img.resize((max(1, round(w * s)), max(1, round(h * s))), Image.LANCZOS)
-    lum = np.asarray(img, dtype=np.float32) / 255.0
-    return np.ascontiguousarray(lum[::-1])
+    la = np.asarray(img, dtype=np.float32) / 255.0
+    return (np.ascontiguousarray(la[::-1, :, 0]),
+            np.ascontiguousarray(la[::-1, :, 1]))
 
 
 def _synthetic_disk(res):
@@ -148,10 +149,14 @@ def map_pegs_to_uv(P, img_w, img_h, fit="bounds", aspect="fit",
 # --------------------------------------------------------------------------
 
 class ThreadEngine:
-    def __init__(self, lum, pegs_uv, *, line_opacity=0.1, history_length=20,
+    def __init__(self, lum, pegs_uv, *, alpha=None, line_opacity=0.1, history_length=20,
                  min_peg_dist=0.2, invert=False, seed=0, trails=1):
         self.H, self.W = lum.shape
-        self.R = (1.0 - lum if invert else lum).astype(np.float32).copy()
+        # Transparent pixels are "nothing to draw" (R = 1), with or without
+        # Invert: R = mix(1, lum or 1 - lum, alpha) (SPEC 4.2).
+        a = np.ones_like(lum) if alpha is None else alpha
+        base = 1.0 - lum if invert else lum
+        self.R = (1.0 - a + a * base).astype(np.float32)
         self.uv = np.asarray(pegs_uv, dtype=np.float64)
         self.px = self.uv * np.array([self.W, self.H])   # pixel space
         self.a = float(line_opacity)
@@ -379,12 +384,12 @@ def main():
     ap.add_argument("--out", default="out/result", help="output prefix")
     args = ap.parse_args()
 
-    lum = load_luminance(args.image, args.resolution)
+    lum, alpha = load_luminance(args.image, args.resolution)
     P = load_pegs_file(args.pegs_file) if args.pegs_file else circle_pegs(args.pegs_circle)
     uv = map_pegs_to_uv(P, lum.shape[1], lum.shape[0], args.fit, args.aspect,
                         args.scale, args.offset)
 
-    engine = ThreadEngine(lum, uv, line_opacity=args.opacity, history_length=args.history,
+    engine = ThreadEngine(lum, uv, alpha=alpha, line_opacity=args.opacity, history_length=args.history,
                           min_peg_dist=args.min_dist, invert=args.invert, seed=args.seed,
                           trails=args.trails)
     t0 = time.perf_counter()
