@@ -247,6 +247,12 @@ Ajouter ici chaque point confirmé par un test dans TouchDesigner, avec la build
   produit bien `Min` / `Max` (lus par `TDIn_Min(1, 0)`) ; Create Attribs
   float2 custom OK ; GLSL TOP + page Buffers → `TDBuffer_PegUV(i)` et
   `TDBufferLength_PegUV()` OK ; uniforms déclarés dans le pixel shader OK.
+- **2025.33070, phase 2 confirmée** (rendu fait par l'utilisateur) : GLSL
+  Advanced POP avec `numthreadsmode = outputpoint`, `maxpointsmode` custom
+  (expression), `pointcountinfo = fromparams`, `ptoutputattrs` + Create
+  Attribs int/float → Attribute POP (`deletepoint`) → **Line Break POP**
+  (`connecmode = onelinestrip`, `uselinestripindex` sur `LineStripIndex`)
+  donne des Line Strips qui se rendent avec un Line MAT.
 - L'image par défaut du Movie File In (banane) a un **fond transparent** :
   toujours penser à l'alpha (TOPs prémultipliés) quand on dérive une valeur
   d'une image.
