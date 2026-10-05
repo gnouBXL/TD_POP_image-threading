@@ -176,6 +176,18 @@ seule** :
 
 R joue donc à la fois le rôle de la cible et celui de l'erreur restante.
 
+Règles précises (fixées par la référence Python, à reproduire en GLSL) :
+
+- **Échantillonnage** de R : bilinéaire, centres de pixels en `i + 0.5`. En
+  dehors de l'image, `R = 1` (rien à dessiner).
+- **Dessin** d'un segment : ligne de 1 px par DDA, avec un pixel par pas le long
+  de l'axe principal (`n = ceil(max(|dx|, |dy|)) + 1` points arrondis au pixel).
+  Chaque pixel n'est touché qu'une fois par segment, donc le GPU peut écrire
+  sans conflit.
+- **Égalités** : parmi les candidats ex aequo, on prend celui dont
+  `wang_hash(wang_hash(Seed ^ wang_hash(itération)) ^ index)` est le plus petit
+  (arithmétique `uint` 32 bits, identique en GLSL).
+
 ### 4.3 Score d'un segment candidat
 
 Pour un segment entre les pegs `A` et `B` (en pixels du résidu) :
@@ -334,6 +346,23 @@ Feedback TOP. Le moteur produit alors un petit TOP « chemin » qui est relu par
 le GLSL POP de sortie.
 
 ### 5.5 Référence CPU
+
+Implémentée dans [`python/reference.py`](../python/reference.py) (NumPy + Pillow) :
+
+```
+pip install -r python/requirements.txt
+python python/reference.py portrait.jpg --pegs-circle 200 --lines 3000 --opacity 0.08 --out out/portrait
+python python/reference.py letter --lines 1500 --out out/letter        # images de test : disk, gradient, letter
+python python/reference.py portrait.jpg --pegs-file pegs.csv --trails 3 --seed 7 --out out/sculpture
+```
+
+`--pegs-file` accepte un CSV `x,y,z` (par exemple exporté depuis un POP) ou un
+`.npy`. Sorties : `.json` (pegs, chemins, scores), `_render.png` (vue de face),
+`_residual.png` (R final) et `.obj` (polylignes 3D avec le XYZ d'origine, à
+ouvrir dans n'importe quel viewer pour tester l'effet « craboutcha »).
+
+Mesures indicatives (CPU, un cœur) : 250 pegs × 3000 lignes ≈ 10 s,
+400 pegs × 3000 lignes ≈ 14 s.
 
 Un script Python/NumPy autonome (`python/reference.py`, hors TouchDesigner)
 implémente la section 4 à l'identique. Il sert à :
