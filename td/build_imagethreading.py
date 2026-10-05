@@ -284,7 +284,8 @@ def build_network(c, root):
     add_uniforms(threads_points, [
         ('uTrails', 'int', [P('Trails')]),
         ('uTrailLen', 'int', [trail_len]),
-        ('uColor', 'vec4', [P('Colorr'), P('Colorg'), P('Colorb'), P('Lineopacity')]),
+        ('uColor', 'vec4', [f"abs({P('Invert')} - {P('Colorr')})", f"abs({P('Invert')} - {P('Colorg')})",
+                            f"abs({P('Invert')} - {P('Colorb')})", P('Lineopacity')]),
     ])
 
     threads_clean = make(c, 'attributePOP', 'threads_clean', 6 * X, 150)
@@ -384,7 +385,7 @@ def build_render(parent_comp, it, x, y):
     orbit.par.far = 10000
 
     # Renders. Background: white (black with Invert), like the reference render.
-    bg = f"0 if op('{it.name}').par.Invert else 1"
+    bg = f"0 if op('{it.name}').par.Invert.eval() else 1"   # .eval(): a Par object is always truthy
     for name, cam, nx in (('view_front', front, 5), ('view_orbit', orbit, 6)):
         r = make(parent_comp, 'renderTOP', name, x + nx * X, y)
         r.par.camera = cam.name

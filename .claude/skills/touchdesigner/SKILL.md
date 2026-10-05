@@ -193,6 +193,9 @@ Exemple : `build_render()` dans `td/build_imagethreading.py`.
 
 ## Pièges connus
 
+- Dans une expression, **`op(...).par.X` est un objet Par, toujours vrai** dans
+  un `if` : écrire `par.X.eval()` (bug vécu : fond de rendu noir permanent).
+
 - Les erreurs d'un script (Run Script) **restent affichées** sur le DAT (coin
   jaune/rouge) même après une exécution réussie : `dat.clearScriptErrors()`
   au début du script, ou dans la Textport.

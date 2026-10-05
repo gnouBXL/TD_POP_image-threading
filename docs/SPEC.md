@@ -120,7 +120,7 @@ propriétaire du dépôt avant la première publication du `.tox`.
 
 | Paramètre | Nom | Type | Défaut | Notes |
 |---|---|---|---|---|
-| Color | `Color` | rgb | 0 0 0 | Valeur de l'attribut `Color` (1 1 1 si Invert) |
+| Color | `Color` | rgb | 0 0 0 | Couleur du fil (attribut `Color`). Avec Invert, la sortie utilise `1 - Color` (fil clair sur fond sombre) |
 | Output Pegs Only | `Pegsonly` | toggle | Off | Debug : sort les pegs comme points |
 
 Évolutions prévues, hors V1 : `Projection Mode` (XY / Camera / Custom), mode RGB
