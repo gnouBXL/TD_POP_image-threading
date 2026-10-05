@@ -193,6 +193,10 @@ Exemple : `build_render()` dans `td/build_imagethreading.py`.
 
 ## Pièges connus
 
+- Les erreurs d'un script (Run Script) **restent affichées** sur le DAT (coin
+  jaune/rouge) même après une exécution réussie : `dat.clearScriptErrors()`
+  au début du script, ou dans la Textport.
+
 - **Câbler une COMP** : `dst.inputConnectors[i].connect(comp)` lève
   `tdError: Invalid number or type of arguments … Value:type:baseCOMP`
   (2025.33070). Toujours connecter connecteur à connecteur :

@@ -406,6 +406,7 @@ def build_render(parent_comp, it, x, y):
 # ---------------------------------------------------------------------------
 
 def build():
+    SCRIPT_DAT.clearScriptErrors()     # errors of a previous run stay on the DAT otherwise
     root = repo_root()
     parent_comp = SCRIPT_DAT.parent()
     old = parent_comp.op(NAME)
