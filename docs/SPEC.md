@@ -336,12 +336,14 @@ ImageThreading (Base COMP, In TOP + In POP → Out POP)
 ├── pegs_uv             GLSL POP (Point) : entrée 0 = pegs, entrée 1 = pegs_bounds
 │                         crée PegUV (vec2) selon Fit / Aspect / Scale / Offset
 │
-│   État initial (phase 3)
-├── image_prep          TOP : Monochrome/Level (+ Invert) → résolution de travail W × H
-├── residual_init       TOP to POP : First RGBA Contains = Custom, canal r → attribut R,
-│                         Filter = Nearest, Pixel Sampling = Pixel Centered,
-│                         Connectivity = None. Dimension W × H
-├── state_init          GLSL POP / Attribute POP : ajoute Path (int, -1) et Counters (int, 0)
+│   État initial (phase 3 ; déjà construit pour la phase 2)
+├── image_prep          Resolution TOP : plus grand côté = Resolution (même arrondi que la référence)
+├── residual_init       TOP to POP : First RGBA Contains = Color, Filter = Nearest,
+│                         Pixel Sampling = Pixel Centered, Connectivity = None. Dimension W × H
+├── state_init          GLSL POP : R = luminance Rec. 601 (comme Pillow « L » dans la référence),
+│                         ou 1 - luminance avec Invert ; Path = -1 ; Score ; Counters.
+│                         Debug « Random Path » : remplit les fils de pegs aléatoires (phase 2)
+├── state               Null POP : état courant (sera la sortie du moteur)
 │
 │   Moteur (phases 4 à 7)
 ├── state_fb            Feedback POP, Target POP = state_out        ┐
@@ -354,15 +356,21 @@ ImageThreading (Base COMP, In TOP + In POP → Out POP)
 │   Sortie (phase 2)
 ├── threads_points      GLSL Advanced POP : Max Points = Trails × M,
 │                         Number of Threads = Per Max Output Point
-│                         entrée 0 = état (Path, Counters), entrée 1 = pegs_uv
-│                         écrit P, Color, PegIndex, Step, StepNorm, Score, LineStripIndex
+│                         entrée 0 = état (Path, Score, Counters), entrée 1 = pegs_uv
+│                         écrit P, Color, Score (attributs existants de l'état) et crée
+│                         PegIndex, Step, StepNorm, LineStripIndex
+├── threads_clean       Attribute POP : supprime R, Path, Counters hérités de l'état
 ├── threads_strips      Line Break POP : mode Line Strip Index Attribute → un Line Strip par fil
+├── threads_trailid     GLSL POP (Primitive) : TrailId
+├── output_select       Switch POP : fils, ou pegs (Output Pegs Only)
 ├── out_threads         Out POP
 │
 │   Debug
-├── residual_debug      POP to TOP : Layout = POP Dimension, attribut R
+├── debug_overlay       GLSL TOP : pegs dessinés en UV sur l'image (PegUV lu par TDBuffer_PegUV)
+├── residual_debug      POP to TOP : Layout = POP Dimension, attribut R (phase 3)
 │
-├── shaders             Text DAT : engine.comp, build_threads.comp, pegs_uv.comp
+├── shader_*            Text DAT synchronisés avec glsl/*.comp|frag ; shader_common = glsl/common.glsl
+│                         (inclus par #include "shader_common")
 └── ext_logic           Extension Python : Reset, Step, Auto Reset, Build Mode
 ```
 
@@ -373,10 +381,10 @@ celle du TOP to POP) :
 |---|---|---|
 | `R` | float | Résidu. Pixel (x, y) au point `y × W + x` (voir 5.5 pour le sens des lignes) |
 | `Path` | int | Chemins. Le fil t occupe les points `[t × M, (t + 1) × M)`, avec `M = ceil(Linecount / Trails) + 1`. `-1` = vide |
-| `Counters` | int | Compteurs dans les premiers points : nombre de segments, itération, longueur de chaque fil, fils bloqués. Disposition exacte fixée en phase 4 |
+| `Counters` | int | Point 0 : segments faits ; 1 : itération ; `2 + t` : nombre de sommets du fil t ; `2 + Trails + t` : fil t bloqué. Constantes dans `glsl/common.glsl` |
 | `Score` | float | Score du segment arrivant à chaque entrée de `Path` (même indexation) |
 
-Contrainte : `Trails × M ≤ W × H` (65 536 à 256 × 256, très au-dessus de
+Contrainte : `Trails × M ≤ W × H` et `2 + 2 × Trails ≤ W × H` (65 536 à 256 × 256, très au-dessus de
 `Linecount` = 2000). L'extension refuse ou borne `Linecount` sinon.
 
 **Boucle Feedback POP** (API réelle) :
@@ -449,10 +457,14 @@ défaut). Ils ne sont pas initialisés si `Initialize Output Attributes` est Off
    forment la première ligne, mais pas si c'est la ligne du bas (convention
    des textures TouchDesigner, qui correspond à la référence Python). À
    vérifier en phase 3 avec une image test asymétrique.
-5. **Types `int` dans `Create Attribs`** et nom personnalisé `R` dans le
-   TOP to POP (mode Custom).
+5. **Types `int` dans `Create Attribs`**, noms internes des menus de type et
+   de nombre de composantes (le script de construction les choisit par libellé).
 6. **Ordre des points dans le Line Break POP** : on suppose que l'ordre des
    points est conservé à l'intérieur de chaque Line Strip.
+7. **Attributs hérités** dans un GLSL Advanced POP qui change le nombre de
+   points (R, Path, Counters de l'état) : `threads_clean` les supprime.
+8. **Noms des sorties de l'Analyze POP** : on suppose `Min` et `Max` quand
+   un seul attribut est analysé.
 
 Repli si le stockage de R dans un POP s'avère trop lent : **GLSL TOP en mode
 compute** dans une boucle Feedback TOP. Depuis 2025.30000, on y lit et écrit la
@@ -561,13 +573,19 @@ TD_POP_image-threading/
 ├── docs/
 │   └── SPEC.md            ← ce document
 ├── glsl/
+│   ├── common.glsl        hash, disposition du chemin et des compteurs
 │   ├── pegs_uv.comp       mapping XY → PegUV
-│   ├── engine.comp        moteur (score, argmax, dessin)
-│   └── build_threads.comp chemin → points du fil (avant Line Break POP)
+│   ├── state_init.comp    état initial (R, Path, Score, Counters), chemin aléatoire de debug
+│   ├── engine.comp        moteur (score, argmax, dessin) — phases 4 à 7
+│   ├── build_threads.comp chemin → points du fil (avant Line Break POP)
+│   ├── trail_id.comp      attribut primitive TrailId
+│   ├── debug_overlay.frag pegs en UV sur l'image
+│   └── tools/check_glsl.py  vérification glslangValidator avec déclarations TD simulées
 ├── python/
 │   ├── reference.py       référence CPU NumPy
 │   └── ext_imagethreading.py  extension du COMP
 ├── td/
+│   ├── build_imagethreading.py  construit le COMP dans TouchDesigner
 │   └── ImageThreading.tox
 └── examples/
     └── craboutcha.toe

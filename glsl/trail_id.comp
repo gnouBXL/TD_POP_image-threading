@@ -1,0 +1,13 @@
+// ImageThreading POP — TrailId primitive attribute (SPEC 3.3).
+// The Line Break POP keeps the point order, so primitive i is trail i.
+//
+// Host: GLSL POP "threads_trailid", Attribute Class = Primitive, Number of Threads = Auto.
+//   creates : TrailId (int)
+
+void main()
+{
+    const uint id = TDIndex();
+    if (id >= TDNumElements())
+        return;
+    TrailId[id] = int(id);
+}

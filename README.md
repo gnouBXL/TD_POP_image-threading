@@ -11,8 +11,35 @@ image 2D.
 Vu de face, le fil révèle l'image. Quand on tourne autour, on ne voit plus que la
 sculpture de fils.
 
-Statut : spécification validée, référence Python (phase 0) faite, architecture
-TouchDesigner vérifiée contre la documentation officielle. Voir [docs/SPEC.md](docs/SPEC.md).
+Statut : référence Python (phase 0) faite, architecture TouchDesigner vérifiée
+contre la documentation officielle, phases 1-2 écrites (à tester dans
+TouchDesigner). Voir [docs/SPEC.md](docs/SPEC.md).
+
+## Construire le composant dans TouchDesigner (phases 1-2)
+
+1. Dans TouchDesigner 2025.3x, créer un **Text DAT** et mettre son paramètre
+   **File** sur `td/build_imagethreading.py` (chemin complet vers ce dépôt).
+2. Clic droit sur le DAT > **Run Script**.
+
+Le script crée `ImageThreading` (paramètres custom, réseau interne, shaders
+chargés depuis `glsl/` en Text DAT synchronisés) et une petite démo :
+`demo_image` (Movie File In) et `demo_pegs` (Circle POP, 200 points).
+
+Vérifications :
+
+- **Phase 1** : le TOP `ImageThreading/debug_overlay` montre les pegs (points
+  rouges) en UV par-dessus l'image. `Output Pegs Only` sort les pegs.
+- **Phase 2** : avec `Debug > Random Path` activé, la sortie est un chemin
+  aléatoire en Line Strips : `Trails` primitives, positions XYZ des pegs,
+  attributs `Color`, `PegIndex`, `Step`, `StepNorm`, `Score`,
+  `LineStripIndex`, `TrailId`.
+
+Si un menu n'a pas l'entrée attendue, le script s'arrête avec un message qui
+liste les entrées disponibles : il suffit de le copier pour corriger le
+script.
+
+Vérifier la syntaxe des shaders hors TouchDesigner :
+`python glsl/tools/check_glsl.py` (demande `glslangValidator`).
 
 ## Credits / Inspiration
 

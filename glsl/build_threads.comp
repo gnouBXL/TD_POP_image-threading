@@ -1,0 +1,37 @@
+// ImageThreading POP — path -> one point per vertex of each trail (SPEC 3.3, 5.3).
+// A Line Break POP (Line Strip Index Attribute) then makes one Line Strip per trail.
+//
+// Host: GLSL Advanced POP "threads_points", Single Shader Dispatch,
+//   Number of Threads = Per Max Output Point, Max Points = Trails * M.
+//   input 0 : engine state (Path, Score, Counters ; also P and Color from TOP to POP)
+//   input 1 : pegs (P, PegUV)
+//   output  : P, Color, Score (Point Output Attributes)
+//   creates : PegIndex, Step, LineStripIndex (int), StepNorm (float)
+//   uniforms: uTrails, uTrailLen (int, M), uColor (vec4: rgb + Line Opacity)
+//
+// Trail t owns output points [t * M, (t + 1) * M). Entries past the end of a
+// trail (not computed yet in Progressive mode) repeat its last vertex: zero
+// length segments, invisible, and a constant point count.
+
+void main()
+{
+    const uint id = TDIndex();
+    if (id >= TDNumElements())
+        return;
+
+    int M = max(uTrailLen, 1);
+    int t = int(id) / M;
+    int k = int(id) % M;
+    int len = TDInPoint_Counters(0, uint(2 + t));      // cCounterTrailVerts + t
+    int kk = clamp(k, 0, max(len - 1, 0));
+    uint entry = uint(t * M + kk);
+    int peg = len > 0 ? TDInPoint_Path(0, entry) : -1;
+
+    oTDPoint_P[id] = TDInPoint_P(1, uint(max(peg, 0)));
+    oTDPoint_Color[id] = uColor;
+    oTDPoint_Score[id] = len > 0 ? TDInPoint_Score(0, entry) : 0.0;
+    oTDPoint_PegIndex[id] = peg;
+    oTDPoint_Step[id] = kk;
+    oTDPoint_StepNorm[id] = len > 1 ? float(kk) / float(len - 1) : 0.0;
+    oTDPoint_LineStripIndex[id] = t;
+}

@@ -1,0 +1,54 @@
+// ImageThreading POP — initial engine state (SPEC 5.3).
+//
+// Host: GLSL POP "state_init", Attribute Class = Point, Number of Threads = Auto.
+//   input 0 : TOP to POP of the working image (Color, dimension W x H)
+//   input 1 : pegs with PegUV (only their count is used here)
+//   creates : R (float), Path (int), Score (float), Counters (int)
+//   uniforms: uInvert, uLineCount, uTrails, uSeed, uDebugRandom (int)
+//
+// R = luminance (Rec. 601 weights, like Pillow's convert("L") in the
+// reference), or 1 - luminance with Invert. Path = -1 (empty).
+// uDebugRandom = 1 fills every trail with random pegs (phase 2 test of the
+// Line Strip output, no engine needed).
+
+#include "shader_common"
+
+void main()
+{
+    const uint id = TDIndex();
+    if (id >= TDNumElements())
+        return;
+
+    float lum = dot(TDIn_Color().rgb, vec3(0.299, 0.587, 0.114));
+    R[id] = uInvert != 0 ? 1.0 - lum : lum;
+    Path[id] = -1;
+    Score[id] = 0.0;
+    Counters[id] = 0;
+
+    if (uDebugRandom == 0)
+        return;
+
+    int trails = max(uTrails, 1);
+    int lineCount = max(uLineCount, 0);
+    int M = trailLen(lineCount, trails);
+    int i = int(id);
+    uint pegCount = TDInputNumPoints(1);
+
+    if (i < trails * M && pegCount > 0u) {
+        int t = i / M;
+        int k = i % M;
+        int segs = trailSegments(lineCount, trails, t);
+        if (segs > 0 && k <= segs) {
+            uint h = wangHash(uint(uSeed) ^ wangHash(id));
+            Path[id] = int(h % pegCount);
+            Score[id] = float(wangHash(h) & 0xFFFFu) / 65535.0;
+        }
+    }
+
+    if (i == cCounterSegments || i == cCounterIteration)
+        Counters[id] = lineCount;
+    else if (i >= cCounterTrailVerts && i < cCounterTrailVerts + trails) {
+        int segs = trailSegments(lineCount, trails, i - cCounterTrailVerts);
+        Counters[id] = segs > 0 ? segs + 1 : 0;
+    }
+}

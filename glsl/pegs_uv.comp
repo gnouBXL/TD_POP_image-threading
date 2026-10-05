@@ -1,0 +1,38 @@
+// ImageThreading POP — mapping XY -> UV of the pegs (SPEC 4.1).
+// Same math as map_pegs_to_uv() in python/reference.py.
+//
+// Host: GLSL POP "pegs_uv", Attribute Class = Point, Number of Threads = Auto.
+//   input 0 : pegs (P)
+//   input 1 : Analyze POP of the pegs, one point with Min and Max (float3)
+//   creates : PegUV (float2)
+//   uniforms: uFit (int: 0 Bounds, 1 Manual), uAspect (int: 0 Fit, 1 Fill, 2 Stretch),
+//             uScale, uOffset (vec2, Manual), uImageRes (vec2: working resolution W, H)
+
+void main()
+{
+    const uint id = TDIndex();
+    if (id >= TDNumElements())
+        return;
+
+    vec2 xy = TDIn_P().xy;                         // Z ignored
+    vec2 uv;
+    if (uFit == 1) {
+        uv = xy * uScale + uOffset;
+    } else {
+        vec2 lo = TDIn_Min(1, 0).xy;
+        vec2 hi = TDIn_Max(1, 0).xy;
+        vec2 size = max(hi - lo, vec2(1e-12));
+        uv = (xy - lo) / size;                     // bounds -> [0,1]^2 (stretch)
+        if (uAspect != 2) {
+            // Keep the image undistorted relative to the peg cloud.
+            float ratio = (size.x / size.y) / (uImageRes.x / uImageRes.y);
+            vec2 k;
+            if (uAspect == 0)                      // fit: whole image inside the bounds
+                k = ratio > 1.0 ? vec2(ratio, 1.0) : vec2(1.0, 1.0 / ratio);
+            else                                   // fill: bounds inside the image
+                k = ratio > 1.0 ? vec2(1.0, 1.0 / ratio) : vec2(ratio, 1.0);
+            uv = (uv - 0.5) * k + 0.5;
+        }
+    }
+    PegUV[id] = uv;
+}

@@ -141,6 +141,42 @@ comp.par.ext0object = "op('./ext').module.MyExt(me)"; comp.par.ext0promote = Tru
 Noms de menu inconnus ? Choisir par libellé, avec un helper qui cherche dans
 `par.menuLabels` et lève une erreur claire. C'est plus robuste qu'un nom deviné.
 
+## Shaders : règles d'écriture
+
+- Pas de `#version` (TD l'ajoute). `#include "nom_du_DAT"` (ou
+  `</chemin/absolu>`, `<../relatif>`) inclut un autre DAT ; mettre des
+  include guards si un DAT est inclus plusieurs fois.
+- **GLSL POPs** : les uniforms des pages Vectors/Colors/… sont **déclarés
+  automatiquement**. **GLSL TOP / MAT** : on **déclare soi-même** les uniforms
+  dans le shader (la page Vectors n'a pas de type ; `loaduniformnames`
+  remplit les noms depuis le shader).
+- Pixel shader GLSL TOP : `layout(location = 0) out vec4 fragColor;`,
+  `sTD2DInputs[i]`, `vUV.st`, `uTDOutputInfo.res` (= 1/w, 1/h, w, h),
+  `fragColor = TDOutputSwizzle(c);`.
+
+## Construire un réseau par script (recette éprouvée)
+
+Pour livrer un COMP sans pouvoir ouvrir TD : un script Python lancé depuis un
+Text DAT (`File` = le script, clic droit > Run Script) qui crée le COMP, ses
+pages custom, ses nœuds, le câblage, et charge shaders/extension dans des Text
+DATs avec `file` + `syncfile` (édition dans le dépôt = mise à jour live).
+Exemple complet : `td/build_imagethreading.py` du dépôt ImageThreading.
+
+- `me.par.file.eval()` donne le chemin du script (relatif à
+  `project.folder`).
+- Classe d'opérateur par nom : `getattr(td, 'glslPOP')`.
+- Menus aux noms internes non documentés : `set_menu(par, 'libellé', …)` qui
+  lève une erreur listant `zip(menuNames, menuLabels)` → un seul aller-retour
+  avec l'utilisateur pour corriger.
+- Paramètres custom : `appendX()` renvoie un ParGroup ; régler `default`,
+  `min`, `clampMin`, `normMax`, `menuNames`, `menuLabels` sur **chaque Par**
+  du groupe, puis `par.val = par.default` (sauf pulses).
+- Ordre des entrées d'un COMP : position verticale des In TOP/POP (le plus
+  haut = entrée 0) ; In POP a aussi `connectorder`.
+- Tester le script hors TD avec un faux module `td` permissif (objets dont
+  les attributs se créent à la demande, `set_menu` remplacé) : attrape les
+  fautes Python et montre le câblage obtenu.
+
 ## Pièges connus
 
 - Un POP en mode Manual ne peut pas utiliser `TDIndex()`.
@@ -158,9 +194,12 @@ Noms de menu inconnus ? Choisir par libellé, avec un helper qui cherche dans
 
 ## Valider sans TouchDesigner
 
-- Syntaxe GLSL : `glslangValidator` (apt `glslang-tools`) avec un en-tête qui
-  simule les déclarations TD ; voir `glsl/tools/` dans le dépôt ImageThreading
-  si présent.
+- Syntaxe GLSL : `glslangValidator` (`apt-get install -y glslang-tools`)
+  sur `#version 460` + `layout(local_size_x = 64) in;` + un fichier « stub » qui
+  déclare ce que TD génèrerait (fonctions `TDIn_*`, SSBO de sortie, uniforms),
+  + le shader, avec les `#include` résolus. Implémenté dans
+  `glsl/tools/check_glsl.py` (dépôt ImageThreading) ; un test négatif
+  (faute volontaire) confirme que les erreurs sont bien remontées.
 - Logique : référence NumPy à côté du shader (même hash entier `uint`, mêmes
   arrondis) et comparaison des sorties.
 
