@@ -205,5 +205,13 @@ Exemple complet : `td/build_imagethreading.py` du dépôt ImageThreading.
 
 ## Vérifié en pratique (dans TD)
 
-_(rien encore : ajouter ici chaque point confirmé par un test dans TouchDesigner,
-avec la build)_
+Ajouter ici chaque point confirmé par un test dans TouchDesigner, avec la build.
+
+- **2025.33070 (macOS)** : `td/build_imagethreading.py` s'exécute sans erreur
+  depuis un Text DAT (File + Run Script) : `comp.create(getattr(td, '…POP'))`,
+  séquences `seq.vec/attr/buffer/ext`, `appendXY/RGB/Menu` + réglages par Par,
+  et **tous les `set_menu()` par libellé ont trouvé leur entrée** (types
+  d'uniforms, Create Attribs custom/int/float/nb de composantes,
+  `maxpointsmode` custom, `pointcountinfo`, TOP to POP, Line Break).
+- Dans `onInitTD` d'une extension, les entrées du COMP n'ont pas encore cuit :
+  `numPoints()` y vaut 0. Ne pas y faire de contrôle sur les données.

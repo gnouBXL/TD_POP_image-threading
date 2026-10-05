@@ -54,6 +54,5 @@ class ImageThreadingExt:
             problems.append('Need at least 2 pegs.')
         return problems
 
-    def onInitTD(self):
-        for p in self.Check():
-            debug(p)
+    # No check in onInitTD: at that point the inputs have not cooked yet
+    # (numPoints() is 0), which printed a false "Need at least 2 pegs".
