@@ -37,6 +37,43 @@ class ImageThreadingExt:
         img = self.ownerComp.op('image_prep')
         return img.width * img.height if img else 0
 
+    # ---- framing (render network) ----------------------------------------
+
+    def ImageRect(self):
+        """(cx, cy, w, h): rectangle covered by the image in world XY, i.e. the
+        inverse of the peg mapping (SPEC 4.1, glsl/pegs_uv.comp). Used by the
+        front camera. Reads the Analyze POP one frame late (no GPU stall)."""
+        c = self.ownerComp
+        img = c.op('image_prep')
+        W, H = max(1, img.width), max(1, img.height)
+        if c.par.Fit.eval() == 'manual':
+            sx = c.par.Scalex.eval() or 1e-9
+            sy = c.par.Scaley.eval() or 1e-9
+            ox, oy = c.par.Offsetx.eval(), c.par.Offsety.eval()
+            return ((0.5 - ox) / sx, (0.5 - oy) / sy, abs(1 / sx), abs(1 / sy))
+        lo, hi = self._bounds()
+        size = [max(hi[i] - lo[i], 1e-12) for i in (0, 1)]
+        k = (1.0, 1.0)
+        aspect = c.par.Aspect.eval()
+        if aspect != 'stretch':
+            ratio = (size[0] / size[1]) / (W / H)
+            if aspect == 'fit':
+                k = (ratio, 1.0) if ratio > 1 else (1.0, 1.0 / ratio)
+            else:
+                k = (1.0, 1.0 / ratio) if ratio > 1 else (ratio, 1.0)
+        return (lo[0] + 0.5 * size[0], lo[1] + 0.5 * size[1], size[0] / k[0], size[1] / k[1])
+
+    def _bounds(self):
+        b = self.ownerComp.op('pegs_bounds')
+        try:
+            lo = tuple(b.point('Min', 0, delayed=True))
+            hi = tuple(b.point('Max', 0, delayed=True))
+            if len(lo) >= 2 and len(hi) >= 2:
+                return lo, hi
+        except Exception:
+            pass
+        return (-1.0, -1.0), (1.0, 1.0)     # before the first cook
+
     # ---- checks ---------------------------------------------------------
 
     def Check(self):

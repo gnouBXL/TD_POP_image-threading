@@ -25,6 +25,19 @@ Le script crée `ImageThreading` (paramètres custom, réseau interne, shaders
 chargés depuis `glsl/` en Text DAT synchronisés) et une petite démo :
 `demo_image` (Movie File In) et `demo_pegs` (Circle POP, 200 points).
 
+Il construit aussi un **réseau de rendu** à côté (opérateurs `view_*`) :
+
+- `view_front` : vue de face orthographique, cadrée sur l'image. C'est là que
+  l'image doit apparaître.
+- `view_orbit` : caméra qui tourne autour de la sculpture (15° par seconde ;
+  vitesse dans l'expression de `view_cam_orbit`).
+- `view_geo` (Geometry COMP), `view_mat` (Line MAT, transparence = Line
+  Opacity), `view_cam_front`, `view_cam_orbit`, `view_target`. Pas de
+  lumière : les fils sont des lignes non éclairées.
+
+Le viewer du nœud `ImageThreading` lui-même reste noir : une Base COMP
+n'affiche pas la géométrie qu'elle sort. Regarder `view_front` / `view_orbit`.
+
 Vérifications :
 
 - **Phase 1** : le TOP `ImageThreading/debug_overlay` montre les pegs (points

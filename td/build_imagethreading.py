@@ -314,6 +314,93 @@ def build_network(c, root):
 
 
 # ---------------------------------------------------------------------------
+# Render network (outside the COMP): see the result without building it by hand
+# ---------------------------------------------------------------------------
+
+RENDER_OPS = ('view_geo', 'view_mat', 'view_target', 'view_cam_front', 'view_cam_orbit',
+              'view_front', 'view_orbit')
+
+
+def build_render(parent_comp, it, x, y):
+    """Front orthographic view (where the image appears) + orbiting perspective view.
+
+    The threads are unlit lines: no light needed. Front camera framing comes
+    from ImageThreadingExt.ImageRect() (image rectangle in world XY).
+    """
+    X = 200
+    rect = f"op('{it.name}').ImageRect()"      # promoted extension method: (cx, cy, w, h)
+
+    # Geometry COMP: its In POP receives the threads, Null POP is rendered.
+    geo = make(parent_comp, 'geometryCOMP', 'view_geo', x + 2 * X, y)
+    for child in list(geo.children):
+        child.destroy()
+    gin = make(geo, 'inPOP', 'in_threads', 0, 0)
+    gout = make(geo, 'nullPOP', 'threads', 200, 0)
+    wire(gin, gout)
+    gout.display = gout.render = True
+    wire(it, geo, 0)
+
+    # Line MAT: color and alpha from the Color attribute (alpha = Line Opacity),
+    # alpha blending, no depth test so every thread accumulates.
+    mat = make(parent_comp, 'lineMAT', 'view_mat', x + 2 * X, y - 2 * X)
+    mat.par.linecoloratt = 'Color'
+    mat.par.linenearcolorr = mat.par.linenearcolorg = mat.par.linenearcolorb = 1
+    mat.par.linenearalpha = 1
+    mat.par.widthnear = 1
+    mat.par.widthfar = 1
+    mat.par.drawpoints = False
+    mat.par.blending = True
+    set_menu(mat.par.srcblend, 'source alpha', 'sa')
+    set_menu(mat.par.destblend, 'one minus source alpha', 'omsa')
+    mat.par.depthtest = False
+    mat.par.depthwriting = False
+    geo.par.material = mat.name
+
+    # Front camera: orthographic, centered on the image, width = image width.
+    front = make(parent_comp, 'cameraCOMP', 'view_cam_front', x + 2 * X, y + 2 * X)
+    set_menu(front.par.projection, 'ortho')
+    front.par.tx.expr = f'{rect}[0]'
+    front.par.ty.expr = f'{rect}[1]'
+    front.par.tz = 1000
+    front.par.near = 0.01
+    front.par.far = 10000
+    front.par.orthowidth.expr = f'{rect}[2]'
+
+    # Orbit camera: circles the image center, always looking at it.
+    target = make(parent_comp, 'nullCOMP', 'view_target', x + 3 * X, y + 2 * X)
+    target.par.tx.expr = f'{rect}[0]'
+    target.par.ty.expr = f'{rect}[1]'
+    orbit = make(parent_comp, 'cameraCOMP', 'view_cam_orbit', x + 4 * X, y + 2 * X)
+    dist = f'1.6 * max({rect}[2], {rect}[3])'
+    angle = 'math.radians(absTime.seconds * 15)'     # 15 degrees per second
+    orbit.par.tx.expr = f'{rect}[0] + {dist} * math.sin({angle})'
+    orbit.par.ty.expr = f'{rect}[1] + 0.25 * {dist}'
+    orbit.par.tz.expr = f'{dist} * math.cos({angle})'
+    orbit.par.lookat = target.name
+    orbit.par.near = 0.01
+    orbit.par.far = 10000
+
+    # Renders. Background: white (black with Invert), like the reference render.
+    bg = f"0 if op('{it.name}').par.Invert else 1"
+    for name, cam, nx in (('view_front', front, 5), ('view_orbit', orbit, 6)):
+        r = make(parent_comp, 'renderTOP', name, x + nx * X, y)
+        r.par.camera = cam.name
+        r.par.geometry = geo.name
+        r.par.lights = ''
+        r.par.outputresolution = 'custom'
+        r.par.resolutionw = 1024
+        if name == 'view_front':   # image aspect ratio
+            r.par.resolutionh.expr = f"max(1, round(1024 * {rect}[3] / max({rect}[2], 1e-9)))"
+        else:
+            r.par.resolutionh = 576
+        for i, comp_name in enumerate('rgb'):
+            getattr(r.par, f'bgcolor{comp_name}').expr = bg
+        r.par.bgcolora = 1
+        r.viewer = True
+    return geo
+
+
+# ---------------------------------------------------------------------------
 
 def build():
     root = repo_root()
@@ -322,7 +409,7 @@ def build():
     x, y = (old.nodeX, old.nodeY) if old else (SCRIPT_DAT.nodeX + 300, SCRIPT_DAT.nodeY)
     if old:
         old.destroy()
-    for n in ('demo_image', 'demo_pegs'):
+    for n in ('demo_image', 'demo_pegs') + RENDER_OPS:
         if parent_comp.op(n):
             parent_comp.op(n).destroy()
 
@@ -343,6 +430,8 @@ def build():
     set_menu(pegs.par.connectivity, 'none')
     wire(img, c, 0)
     wire(pegs, c, 1)
+
+    build_render(parent_comp, c, x, y)
 
     problems = c.errors(recurse=True)
     print(f'{c.path} built from {root}')

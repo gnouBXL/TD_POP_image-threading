@@ -177,7 +177,24 @@ Exemple complet : `td/build_imagethreading.py` du dépôt ImageThreading.
   les attributs se créent à la demande, `set_menu` remplacé) : attrape les
   fautes Python et montre le câblage obtenu.
 
+## Rendre des POPs (réseau type)
+
+Geometry COMP (`geometryCOMP`, param `material`) contenant In POP → Null POP
+avec `render`/`display` On (vider d'abord ses enfants par défaut) ; le COMP
+reçoit le POP sur son entrée. Line MAT (`lineMAT`) pour des lignes :
+`linecoloratt = 'Color'`, `widthnear/widthfar` (pixels), `drawpoints` ; page
+MAT Common : `blending`, `srcblend`, `destblend`, `depthtest`, `depthwriting`
+(Off pour accumuler des lignes translucides). Camera COMP : `projection`
+perspective|ortho, `orthowidth`, `near`, `far`, `lookat` (Object COMP),
+transform `tx…rz`, `xord`, `rord`, `p*`. Render TOP : `camera`, `geometry`,
+`lights` (vide si matériau non éclairé), `bgcolorr/g/b/a`, résolution via
+la page Common. Lignes et Constant MAT n'ont pas besoin de lumière.
+Exemple : `build_render()` dans `td/build_imagethreading.py`.
+
 ## Pièges connus
+
+- Le viewer d'une **Base COMP** reste noir même si elle sort un POP : regarder
+  l'Out POP à l'intérieur ou un rendu.
 
 - Un POP en mode Manual ne peut pas utiliser `TDIndex()`.
 - Long dispatch unique (> ~2 s) → risque de reset du driver (TDR Windows) :
