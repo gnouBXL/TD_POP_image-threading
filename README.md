@@ -11,7 +11,8 @@ image 2D.
 Vu de face, le fil révèle l'image. Quand on tourne autour, on ne voit plus que la
 sculpture de fils.
 
-Statut : spécification, avant implémentation. Voir [docs/SPEC.md](docs/SPEC.md).
+Statut : spécification validée, référence Python (phase 0) faite, architecture
+TouchDesigner vérifiée contre la documentation officielle. Voir [docs/SPEC.md](docs/SPEC.md).
 
 ## Credits / Inspiration
 
