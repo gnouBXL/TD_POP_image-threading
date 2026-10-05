@@ -96,7 +96,8 @@ propriétaire du dépôt avant la première publication du `.tox`.
 |---|---|---|---|---|
 | Build Mode | `Buildmode` | menu | `Progressive` | `Progressive` ou `All At Once` |
 | Iterations Per Frame | `Iterperframe` | int | 10 | Mode Progressive uniquement. 0 = pause |
-| Step | `Step` | pulse | | Avance d'un frame, soit `Iterperframe` itérations (mode Progressive, debug ; voir 5.3) |
+| Play | `Play` | toggle | On | Lecture / pause de la boucle (Feedback POP) |
+| Step | `Step` | pulse | | Met en pause et avance d'un frame, soit `Iterperframe` itérations (mode Progressive, debug ; voir 5.3) |
 | Reset | `Reset` | pulse | | Repart de zéro (résidu = image, fil vide) |
 | Auto Reset | `Autoreset` | toggle | On | Reset automatique quand l'image, les pegs ou un paramètre d'algorithme changent |
 
@@ -192,11 +193,18 @@ Règles précises (fixées par la référence Python, à reproduire en GLSL) :
   dehors de l'image, `R = 1` (rien à dessiner).
 - **Dessin** d'un segment : ligne de 1 px par DDA, avec un pixel par pas le long
   de l'axe principal (`n = ceil(max(|dx|, |dy|)) + 1` points arrondis au pixel).
-  Chaque pixel n'est touché qu'une fois par segment, donc le GPU peut écrire
-  sans conflit.
-- **Égalités** : parmi les candidats ex aequo, on prend celui dont
+  Deux pas consécutifs peuvent tomber sur le même pixel : il n'est éclairci
+  qu'une fois (le shader saute la répétition), donc le GPU écrit sans conflit.
+- **Arrondis robustes** : les longueurs et positions tombent souvent pile sur
+  un entier ou un demi-entier (pegs symétriques), où le bruit float32/float64
+  ferait basculer l'arrondi. On utilise `ceil(v − 2⁻¹⁰)` (nombre
+  d'échantillons, nombre de pas) et `floor(v + 0.5 + 2⁻¹⁰)` (pixel du DDA).
+- **Égalités** : les scores sont comparés **après quantification à 2⁻¹⁶**
+  (`floor(score × 65536 + 0.5)`), pour que le bruit float32 (GPU) / float64
+  (CPU) ne départage pas des candidats quasi égaux (zones uniformes : fond,
+  disque…). Parmi les ex aequo, on prend celui dont
   `wang_hash(wang_hash(Seed ^ wang_hash(itération)) ^ index)` est le plus petit
-  (arithmétique `uint` 32 bits, identique en GLSL).
+  (arithmétique `uint` 32 bits, identique en GLSL), puis le plus petit index.
 
 ### 4.3 Score d'un segment candidat
 
@@ -580,13 +588,15 @@ TD_POP_image-threading/
 │   ├── common.glsl        hash, disposition du chemin et des compteurs
 │   ├── pegs_uv.comp       mapping XY → PegUV
 │   ├── state_init.comp    état initial (R, Path, Score, Counters), chemin aléatoire de debug
-│   ├── engine.comp        moteur (score, argmax, dessin) — phases 4 à 7
+│   ├── engine.comp        moteur (score, argmax, dessin)
 │   ├── build_threads.comp chemin → points du fil (avant Line Break POP)
 │   ├── trail_id.comp      attribut primitive TrailId
 │   ├── debug_overlay.frag pegs en UV sur l'image
 │   └── tools/check_glsl.py  vérification glslangValidator avec déclarations TD simulées
 ├── python/
 │   ├── reference.py       référence CPU NumPy
+│   ├── engine_emulator.py rejoue engine.comp en float32 et le compare à la référence
+│   ├── parexec_imagethreading.py  Parameter Execute DAT (Reset, Step, Auto Reset)
 │   └── ext_imagethreading.py  extension du COMP
 ├── td/
 │   ├── build_imagethreading.py  construit le COMP dans TouchDesigner

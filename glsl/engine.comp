@@ -1,0 +1,261 @@
+// ImageThreading POP — engine: K greedy iterations in ONE workgroup (SPEC 4.2 - 4.6, 5.2).
+// Same algorithm as ThreadEngine in python/reference.py; python/engine_emulator.py
+// replays this exact control flow on the CPU.
+//
+// Host: GLSL POP "engine", Attribute Class = Point,
+//   Number of Threads = Manual, Work Group Size = 256 1 1, Dispatch Size = 1 1 1,
+//   Output Attributes = R Path Score Counters, Output Access = Read-Write,
+//   Initialize Output Attributes = On, Copy Previous Pass Output to Input = On,
+//   Passes = 1 (Progressive) or more (All At Once).
+//   input 0 : engine state (R, Path, Score, Counters), W x H points
+//   input 1 : pegs (PegUV)
+//   uniforms: uK (iterations per pass), uLineCount, uTrails, uHistory, uSeed,
+//             uW, uH (int) ; uOpacity (a), uMinDist (float)
+//
+// The shader only reads and writes the OUTPUT arrays R[], Path[], Score[],
+// Counters[] (initialized from input 0), so successive iterations see each
+// other's writes. Thread 0 takes the sequential decisions; all threads score
+// candidates and draw segments in parallel; barrier() separates the steps.
+
+#include "shader_common"
+
+const uint WG = 256u;               // must match Work Group Size x
+const uint NONE = 0xFFFFFFFFu;
+const int cMaxHistory = 256;
+
+shared float sScore[WG];
+shared uint sHash[WG];
+shared uint sId[WG];
+shared int sHist[cMaxHistory];
+shared int sState;                  // 0 go, 1 finished, 2 retry (a trail was just marked stuck)
+shared int sTrail;
+shared int sLen;
+shared int sCur;
+shared int sHistN;
+
+// Robust rounding (SPEC 4.2), same as robust_ceil / robust_round in reference.py.
+const float cEps = 1.0 / 1024.0;
+int robustCeil(float v) { return int(ceil(v - cEps)); }
+ivec2 robustRound(vec2 v) { return ivec2(floor(v + 0.5 + cEps)); }
+
+// ---- residual sampling (SPEC 4.2: bilinear, pixel centers at i + 0.5, 1 outside)
+
+float texel(int x, int y)
+{
+    if (x < 0 || y < 0 || x >= uW || y >= uH)
+        return 1.0;
+    return R[y * uW + x];
+}
+
+float sampleR(vec2 p)
+{
+    vec2 f = p - 0.5;
+    vec2 i0 = floor(f);
+    vec2 t = f - i0;
+    int x0 = int(i0.x);
+    int y0 = int(i0.y);
+    return (1.0 - t.x) * (1.0 - t.y) * texel(x0, y0)
+         + t.x * (1.0 - t.y) * texel(x0 + 1, y0)
+         + (1.0 - t.x) * t.y * texel(x0, y0 + 1)
+         + t.x * t.y * texel(x0 + 1, y0 + 1);
+}
+
+vec2 pegUV(uint j) { return TDIn_PegUV(1, j); }
+vec2 pegPx(uint j) { return pegUV(j) * vec2(float(uW), float(uH)); }
+
+bool tooClose(uint i, uint j) { return distance(pegUV(i), pegUV(j)) < uMinDist; }
+
+// SPEC 4.3: mean "remaining darkness" along the segment, ~1 sample per pixel.
+float segScore(vec2 A, vec2 B)
+{
+    int n = max(1, robustCeil(length(B - A)));
+    float s = 0.0;
+    for (int k = 1; k <= n; k++) {
+        float t = float(k) / float(n + 1);
+        s += 0.5 - (sampleR(A + (B - A) * t) + uOpacity);
+    }
+    return s / float(n);
+}
+
+// Candidate ordering: best score quantized to 2^-16 (SPEC 4.2: float noise must
+// not decide between near-equal candidates), then smallest tie hash, then
+// smallest id.
+int quantizeScore(float s) { return int(floor(s * 65536.0 + 0.5)); }
+
+bool better(float s1, uint h1, uint i1, float s2, uint h2, uint i2)
+{
+    int q1 = quantizeScore(s1), q2 = quantizeScore(s2);
+    if (q1 != q2) return q1 > q2;
+    if (h1 != h2) return h1 < h2;
+    return i1 < i2;
+}
+
+// SPEC 4.2: 1 px DDA, one pixel per step along the major axis. Consecutive steps can land on the same pixel: only
+// the first one draws, so each pixel is lightened once (as in the reference).
+ivec2 segPixel(vec2 p0, vec2 d, int n, int k)
+{
+    float t = n > 1 ? float(k) / float(n - 1) : 0.0;
+    return robustRound(p0 + d * t);
+}
+
+void drawSegment(uint a, uint b, uint lid)
+{
+    vec2 p0 = pegPx(a) - 0.5;
+    vec2 d = pegPx(b) - 0.5 - p0;
+    int n = robustCeil(max(abs(d.x), abs(d.y))) + 1;
+    for (int k = int(lid); k < n; k += int(WG)) {
+        ivec2 q = segPixel(p0, d, n, k);
+        if (k > 0 && q == segPixel(p0, d, n, k - 1))
+            continue;
+        if (q.x < 0 || q.y < 0 || q.x >= uW || q.y >= uH)
+            continue;
+        int idx = q.y * uW + q.x;
+        R[idx] = min(1.0, R[idx] + uOpacity);
+    }
+}
+
+void main()
+{
+    const uint lid = gl_LocalInvocationIndex;
+    const int T = max(uTrails, 1);
+    const int L = max(uLineCount, 0);
+    const int M = trailLen(L, T);
+    const uint N = TDInputNumPoints(1);
+    const int H = clamp(uHistory, 0, cMaxHistory);
+    const uint seed = uint(uSeed);
+
+    for (int it = 0; it < uK; it++) {
+        barrier();                                // all threads done with the previous sState
+        // ---- 1. thread 0 picks the trail (round robin, skipping stuck ones)
+        if (lid == 0u) {
+            sState = 1;
+            int seg = Counters[cCounterSegments];
+            if (seg < L && N >= 2u) {
+                for (int r = 0; r < T; r++) {
+                    int t = (seg + r) % T;
+                    if (Counters[cCounterTrailVerts + T + t] == 0) {
+                        sTrail = t;
+                        sState = 0;
+                        break;
+                    }
+                }
+            }
+            if (sState == 0) {
+                sLen = Counters[cCounterTrailVerts + sTrail];
+                if (sLen + (sLen == 0 ? 2 : 1) > M) {         // no room left: treat as stuck
+                    Counters[cCounterTrailVerts + T + sTrail] = 1;
+                    sState = 2;
+                }
+                sCur = sLen > 0 ? Path[sTrail * M + sLen - 1] : -1;
+                sHistN = min(H, sLen);
+            }
+        }
+        memoryBarrierBuffer();
+        barrier();
+        if (sState == 1)
+            break;
+        if (sState == 2)
+            continue;
+
+        const int t = sTrail;
+        const int len = sLen;
+        const int cur = sCur;
+        const uint iteration = uint(Counters[cCounterIteration]);
+
+        // ---- 2. history of this trail (its last H pegs, current one included)
+        for (int h = int(lid); h < sHistN; h += int(WG))
+            sHist[h] = Path[t * M + len - 1 - h];
+        barrier();
+
+        // ---- 3. every thread scores a share of the candidates
+        float bs = -1.0e4;                        // below any score (scores are in [-1.5, 0.5])
+        uint bh = NONE;
+        uint bi = NONE;
+        if (cur < 0) {
+            // SPEC 4.5: first segment = best pair (i < j) on a subsample of the pegs.
+            uint stepP = 1u + N / 100u;
+            uint m = (N + stepP - 1u) / stepP;
+            for (uint p = lid; p < m * m; p += WG) {
+                uint i = (p / m) * stepP;
+                uint j = (p % m) * stepP;
+                if (i >= j || tooClose(i, j))
+                    continue;
+                uint id = i * N + j;
+                float s = segScore(pegPx(i), pegPx(j));
+                uint hsh = tieHash(seed, iteration, id);
+                if (better(s, hsh, id, bs, bh, bi)) { bs = s; bh = hsh; bi = id; }
+            }
+        } else {
+            // SPEC 4.4: next peg from the current one.
+            uint c = uint(cur);
+            vec2 A = pegPx(c);
+            for (uint j = lid; j < N; j += WG) {
+                if (j == c || tooClose(c, j))
+                    continue;
+                bool recent = false;
+                for (int h = 0; h < sHistN; h++)
+                    recent = recent || (sHist[h] == int(j));
+                if (recent)
+                    continue;
+                float s = segScore(A, pegPx(j));
+                uint hsh = tieHash(seed, iteration, j);
+                if (better(s, hsh, j, bs, bh, bi)) { bs = s; bh = hsh; bi = j; }
+            }
+        }
+
+        // ---- 4. reduction in shared memory -> best candidate of the workgroup
+        sScore[lid] = bs;
+        sHash[lid] = bh;
+        sId[lid] = bi;
+        barrier();
+        for (uint stride = WG / 2u; stride > 0u; stride >>= 1) {
+            if (lid < stride) {
+                uint o = lid + stride;
+                if (better(sScore[o], sHash[o], sId[o], sScore[lid], sHash[lid], sId[lid])) {
+                    sScore[lid] = sScore[o];
+                    sHash[lid] = sHash[o];
+                    sId[lid] = sId[o];
+                }
+            }
+            barrier();
+        }
+        const uint best = sId[0];
+        const float bestScore = sScore[0];
+        barrier();                                // everyone has read sId[0] / sScore[0]
+
+        if (best == NONE) {                       // no valid candidate: this trail is stuck
+            if (lid == 0u)
+                Counters[cCounterTrailVerts + T + t] = 1;
+            memoryBarrierBuffer();
+            barrier();
+            continue;
+        }
+
+        uint a, b;
+        if (cur < 0) { a = best / N; b = best % N; }
+        else         { a = uint(cur); b = best; }
+
+        // ---- 5. draw the segment into R (all threads)
+        drawSegment(a, b, lid);
+
+        // ---- 6. thread 0 records it
+        if (lid == 0u) {
+            int base = t * M;
+            if (cur < 0) {
+                Path[base] = int(a);
+                Score[base] = 0.0;
+                Path[base + 1] = int(b);
+                Score[base + 1] = bestScore;
+                Counters[cCounterTrailVerts + t] = 2;
+            } else {
+                Path[base + len] = int(b);
+                Score[base + len] = bestScore;
+                Counters[cCounterTrailVerts + t] = len + 1;
+            }
+            Counters[cCounterSegments] += 1;
+            Counters[cCounterIteration] += 1;
+        }
+        memoryBarrierBuffer();
+        barrier();
+    }
+}

@@ -21,6 +21,7 @@ INCLUDES = {"shader_common": "common.glsl"}
 SHADERS = {  # name -> (file, stage)
     "pegs_uv": ("pegs_uv.comp", "comp"),
     "state_init": ("state_init.comp", "comp"),
+    "engine": ("engine.comp", "comp"),
     "build_threads": ("build_threads.comp", "comp"),
     "trail_id": ("trail_id.comp", "comp"),
     "debug_overlay": ("debug_overlay.frag", "frag"),
@@ -34,7 +35,7 @@ def source(name):
                   lambda m: open(os.path.join(GLSL, INCLUDES[m.group(1)])).read(), body)
     head = "#version 460\n"
     if stage == "comp":
-        head += "layout(local_size_x = 64) in;\n"
+        head += f"layout(local_size_x = {256 if name == 'engine' else 64}) in;\n"
     head += open(os.path.join(HERE, "stubs", name + ".glsl")).read()
     return head + "\n#line 1\n" + body, stage
 

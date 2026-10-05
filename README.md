@@ -15,7 +15,7 @@ Statut : référence Python (phase 0) faite, architecture TouchDesigner vérifi�
 contre la documentation officielle, phases 1-2 écrites (à tester dans
 TouchDesigner). Voir [docs/SPEC.md](docs/SPEC.md).
 
-## Construire le composant dans TouchDesigner (phases 1-2)
+## Construire le composant dans TouchDesigner
 
 1. Dans TouchDesigner 2025.3x, créer un **Text DAT** et mettre son paramètre
    **File** sur `td/build_imagethreading.py` (chemin complet vers ce dépôt).
@@ -46,13 +46,22 @@ Vérifications :
   aléatoire en Line Strips : `Trails` primitives, positions XYZ des pegs,
   attributs `Color`, `PegIndex`, `Step`, `StepNorm`, `Score`,
   `LineStripIndex`, `TrailId`.
+- **Phases 3-5** (moteur) : `ImageThreading/residual_view` montre le résidu
+  (l'image en niveaux de gris au départ, qui blanchit là où passe le fil).
+  En `Progressive`, le fil se construit à `Iterations Per Frame` segments par
+  frame jusqu'à `Line Count` ; `All At Once` calcule tout d'un coup. `Reset`
+  recommence, `Play` met en pause, `Step` avance d'une frame. Après un
+  changement d'image ou de pegs, appuyer sur `Reset`.
 
 Si un menu n'a pas l'entrée attendue, le script s'arrête avec un message qui
 liste les entrées disponibles : il suffit de le copier pour corriger le
 script.
 
-Vérifier la syntaxe des shaders hors TouchDesigner :
-`python glsl/tools/check_glsl.py` (demande `glslangValidator`).
+Vérifier hors TouchDesigner :
+
+- syntaxe des shaders : `python glsl/tools/check_glsl.py` (demande `glslangValidator`) ;
+- logique du moteur : `python python/engine_emulator.py` rejoue le shader en
+  float32 sur CPU et le compare à la référence (chemins identiques).
 
 ## Credits / Inspiration
 

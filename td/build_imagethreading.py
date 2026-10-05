@@ -14,7 +14,9 @@ Phases 1-2 content (docs/SPEC.md, sections 3, 5.3 and 6):
     - custom parameters of every page;
     - XY -> UV mapping of the pegs (Analyze POP + GLSL POP), Output Pegs Only;
     - debug_overlay TOP: pegs drawn in UV over the image (phase 1 check);
-    - engine state with a RANDOM path (Debug page, `Debugrandompath`), turned
+    - engine (phases 3-5): residual, greedy GLSL engine in a Feedback POP loop,
+      Progressive / All At Once, Reset / Step / Auto Reset, residual view;
+    - debug: RANDOM path instead of the engine (Debug page, `Debugrandompath`),
       into Line Strips with the original XYZ (phase 2 check).
 
 Parameter names come from docs.derivative.ca. Menu entries whose internal
@@ -78,14 +80,18 @@ def wire(src, dst, index=0):
     dst.inputConnectors[index].connect(src.outputConnectors[0])
 
 
-def text_from_file(comp, name, path, x, y):
-    n = make(comp, 'textDAT', name, x, y)
+def attach_file(n, path):
+    """Load a DAT from a repository file and keep it in sync with it."""
     n.par.file = path
     if hasattr(n.par, 'syncfile'):
         n.par.syncfile = True
     n.text = open(path, encoding='utf-8').read()
     n.viewer = False
     return n
+
+
+def text_from_file(comp, name, path, x, y):
+    return attach_file(make(comp, 'textDAT', name, x, y), path)
 
 
 def add_uniforms(n, uniforms):
@@ -141,6 +147,7 @@ def build_parameters(c):
     setp(pg.appendMenu('Buildmode', label='Build Mode'), menuNames=['progressive', 'allatonce'],
          menuLabels=['Progressive', 'All At Once'], default='progressive')
     setp(pg.appendInt('Iterperframe', label='Iterations Per Frame'), default=10, min=0, clampMin=True, normMax=200)
+    setp(pg.appendToggle('Play', label='Play'), default=True)
     pg.appendPulse('Step', label='Step')
     pg.appendPulse('Reset', label='Reset')
     setp(pg.appendToggle('Autoreset', label='Auto Reset'), default=True)
@@ -159,7 +166,7 @@ def build_parameters(c):
     setp(pg.appendToggle('Pegsonly', label='Output Pegs Only'), default=False)
 
     pg = c.appendCustomPage('Debug')
-    setp(pg.appendToggle('Debugrandompath', label='Random Path (no engine)'), default=True)
+    setp(pg.appendToggle('Debugrandompath', label='Random Path (no engine)'), default=False)
     setp(pg.appendFloat('Debugpegradius', label='Overlay Peg Radius'), default=3, normMax=10)
 
     for par in c.customPars:
@@ -186,6 +193,7 @@ def build_network(c, root):
     text_from_file(c, 'shader_common', os.path.join(glsl, 'common.glsl'), sx, 600)
     text_from_file(c, 'shader_pegs_uv', os.path.join(glsl, 'pegs_uv.comp'), sx, 450)
     text_from_file(c, 'shader_state_init', os.path.join(glsl, 'state_init.comp'), sx, 300)
+    text_from_file(c, 'shader_engine', os.path.join(glsl, 'engine.comp'), sx - X, 300)
     text_from_file(c, 'shader_build_threads', os.path.join(glsl, 'build_threads.comp'), sx, 150)
     text_from_file(c, 'shader_trail_id', os.path.join(glsl, 'trail_id.comp'), sx, 0)
     text_from_file(c, 'shader_debug_overlay', os.path.join(glsl, 'debug_overlay.frag'), sx, -150)
@@ -262,9 +270,59 @@ def build_network(c, root):
         ('uSeed', 'int', [P('Seed')]),
         ('uDebugRandom', 'int', [f"int({P('Debugrandompath')})"]),
     ])
-    # Phases 4-7 insert the engine (Feedback loop / All At Once) here.
-    state = make(c, 'nullPOP', 'state', 4 * X, 300)
-    wire(state_init, state)
+    # ---- engine in a Feedback POP loop (phases 4-7, SPEC 5.2 / 5.3) -----
+    # Progressive: 1 pass of Iterperframe iterations per frame.
+    # All At Once: enough passes of 100 iterations to finish in one frame.
+    progressive = "parent().par.Buildmode.eval() == 'progressive'"
+    state_fb = make(c, 'feedbackPOP', 'state_fb', 4 * X, 300)
+    wire(state_init, state_fb)
+    state_fb.par.targetpop = 'state'
+    state_fb.par.play.expr = P('Play')
+
+    engine = make(c, 'glslPOP', 'engine', 5 * X, 300)
+    wire(state_fb, engine, 0)
+    wire(pegs_uv, engine, 1)
+    engine.par.computedat = 'shader_engine'
+    set_menu(engine.par.attrclass, 'point')
+    set_menu(engine.par.numthreadsmode, 'manual')
+    engine.par.workgroupsizex, engine.par.workgroupsizey, engine.par.workgroupsizez = 256, 1, 1
+    engine.par.dispatchsizex, engine.par.dispatchsizey, engine.par.dispatchsizez = 1, 1, 1
+    engine.par.outputattrs = 'R Path Score Counters'
+    set_menu(engine.par.outputaccess, 'readwrite')
+    engine.par.initoutputattrs = True
+    engine.par.prevpassoutput = True
+    engine.par.npasses.expr = f"1 if {progressive} else -(-{P('Linecount')} // 100) + 1"
+    add_uniforms(engine, [
+        ('uK', 'int', [f"{P('Iterperframe')} if {progressive} else 100"]),
+        ('uLineCount', 'int', [P('Linecount')]),
+        ('uTrails', 'int', [P('Trails')]),
+        ('uHistory', 'int', [P('Historylength')]),
+        ('uSeed', 'int', [P('Seed')]),
+        ('uW', 'int', ["op('image_prep').width"]),
+        ('uH', 'int', ["op('image_prep').height"]),
+        ('uOpacity', 'float', [P('Lineopacity')]),
+        ('uMinDist', 'float', [P('Minpegdist')]),
+    ])
+
+    state = make(c, 'nullPOP', 'state', 6 * X, 300)
+    wire(engine, state)
+
+    # Residual R as an image (debug, phase 3): white = nothing left to draw.
+    residual_view = make(c, 'poptoTOP', 'residual_view', 6 * X, 450)
+    residual_view.par.pop = 'state'
+    set_menu(residual_view.par.rgbamode, 'custom')
+    residual_view.par.attribscope = 'R'
+    set_menu(residual_view.par.layout, 'popdim')
+
+    # Reset / Step / Auto Reset (python/parexec_imagethreading.py).
+    parexec = make(c, 'parameterexecuteDAT', 'parexec', sx - X, 150)
+    parexec.par.op = '..'
+    parexec.par.pars = '*'
+    parexec.par.custom = True
+    parexec.par.builtin = False
+    parexec.par.valuechange = True
+    parexec.par.onpulse = True
+    attach_file(parexec, os.path.join(root, 'python', 'parexec_imagethreading.py'))
 
     # ---- output: path -> Line Strips (phase 2) -------------------------
     trail_len = f"(-(-{P('Linecount')} // max(1, {P('Trails')})) + 1)"
@@ -427,6 +485,8 @@ def build():
     c.par.ext0object = "op('./ext_imagethreading').module.ImageThreadingExt(me)"
     c.par.ext0promote = True
     c.par.reinitextensions.pulse()
+    # Start the Feedback loop once everything has cooked.
+    run("op(args[0]).ext.ImageThreadingExt.Reset()", c.path, delayFrames=3)
 
     # Demo inputs: default Movie File In image + 200 pegs on a circle.
     img = make(parent_comp, 'moviefileinTOP', 'demo_image', x - 300, y + 100)

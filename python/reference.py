@@ -50,6 +50,26 @@ def tie_hash(seed, iteration, candidates):
         return wang_hash(h ^ np.asarray(candidates, dtype=np.uint32))
 
 
+# Robust rounding (SPEC 4.2): segment lengths and DDA positions often land
+# exactly on integers / half-integers (symmetric peg layouts), where float32
+# (GPU) and float64 (CPU) noise would flip ceil() or the rounding. A small
+# bias of 2^-10 pixel makes both sides agree.
+EPS = 1.0 / 1024.0
+
+
+def robust_ceil(v):
+    return np.ceil(np.asarray(v, dtype=np.float64) - EPS)
+
+
+def robust_round(v):
+    return np.floor(np.asarray(v, dtype=np.float64) + 0.5 + EPS)
+
+
+def quantize_score(score):
+    """Score key used for the comparisons: round(score * 2^16), as an integer."""
+    return np.floor(np.asarray(score, dtype=np.float64) * 65536.0 + 0.5).astype(np.int64)
+
+
 # --------------------------------------------------------------------------
 # Inputs
 # --------------------------------------------------------------------------
@@ -194,7 +214,7 @@ class ThreadEngine:
     def score_from(self, a_idx, b_idx):
         """Vectorized SPEC 4.3 for segments a_idx[k] -> b_idx[k]."""
         A, B = self.px[a_idx], self.px[b_idx]
-        n = np.maximum(1, np.ceil(np.hypot(*(B - A).T))).astype(np.int64)
+        n = np.maximum(1, robust_ceil(np.hypot(*(B - A).T))).astype(np.int64)
         S = int(n.max())
         k = np.arange(1, S + 1)[None, :]
         t = k / (n[:, None] + 1.0)
@@ -208,12 +228,13 @@ class ThreadEngine:
 
     def segment_pixels(self, i, j):
         """DDA raster of a 1 px line: one pixel per step along the major axis.
-        Each pixel appears once, so the GPU can write it without races."""
+        Consecutive steps may land on the same pixel; the fancy-index update in
+        draw() lightens it once, and the shader skips the repeat."""
         (x0, y0), (x1, y1) = self.px[i] - 0.5, self.px[j] - 0.5
-        n = int(math.ceil(max(abs(x1 - x0), abs(y1 - y0)))) + 1
-        t = np.linspace(0.0, 1.0, n)
-        xi = np.rint(x0 + (x1 - x0) * t).astype(np.int64)
-        yi = np.rint(y0 + (y1 - y0) * t).astype(np.int64)
+        n = int(robust_ceil(max(abs(x1 - x0), abs(y1 - y0)))) + 1
+        t = np.arange(n) / (n - 1) if n > 1 else np.zeros(1)
+        xi = robust_round(x0 + (x1 - x0) * t).astype(np.int64)
+        yi = robust_round(y0 + (y1 - y0) * t).astype(np.int64)
         keep = (xi >= 0) & (xi < self.W) & (yi >= 0) & (yi < self.H)
         return xi[keep], yi[keep]
 
@@ -224,11 +245,18 @@ class ThreadEngine:
     # ---- selection -------------------------------------------------------
 
     def pick(self, scores, candidates):
-        best = scores.max()
-        tied = candidates[scores == best]
+        # Scores are compared after quantization to 2^-16 (SPEC 4.2): float32
+        # vs float64 noise must not decide between near-equal candidates;
+        # real ties are broken by the Seed hash, then by the smallest id.
+        q = quantize_score(scores)
+        best = q.max()
+        tied_mask = q == best
+        tied = candidates[tied_mask]
+        k = 0
         if len(tied) > 1:
-            tied = tied[[np.argmin(tie_hash(self.seed, self.iteration, tied))]]
-        return int(tied[0]), float(best)
+            h = tie_hash(self.seed, self.iteration, tied).astype(np.int64)
+            k = int(np.lexsort((tied, h))[0])
+        return int(tied[k]), float(scores[tied_mask][k])
 
     def best_start(self):
         N = len(self.uv)

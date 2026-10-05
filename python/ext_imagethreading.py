@@ -1,7 +1,7 @@
 """Extension of the ImageThreading COMP (SPEC 3.2, 5.3).
 
-Phases 1-2: layout helpers and limit checks. Reset / Step / Auto Reset / Build
-Mode arrive with the engine (phases 5-6).
+Layout helpers, framing of the render, limit checks, Reset / Step of the
+engine's Feedback POP loop (SPEC 5.3).
 
 Attached by td/build_imagethreading.py:
     comp.par.ext0object = "op('./ext_imagethreading').module.ImageThreadingExt(me)"
@@ -36,6 +36,22 @@ class ImageThreadingExt:
         """Points of the state list: W x H of the working image."""
         img = self.ownerComp.op('image_prep')
         return img.width * img.height if img else 0
+
+    # ---- engine loop (Feedback POP state_fb) ------------------------------
+
+    def Reset(self):
+        """Restart from the initial state: the Feedback POP has no Reset, so
+        Initialize (snapshot of state_init) then Start on the next frame."""
+        fb = self.ownerComp.op('state_fb')
+        if fb is None:
+            return
+        fb.par.initializepulse.pulse()
+        run("args[0].par.startpulse.pulse()", fb, delayFrames=1)
+
+    def Step(self):
+        """Pause (Play off) and advance the loop by one frame = Iterperframe iterations."""
+        self.ownerComp.par.Play = False
+        self.ownerComp.op('state_fb').par.steppulse.pulse()
 
     # ---- framing (render network) ----------------------------------------
 

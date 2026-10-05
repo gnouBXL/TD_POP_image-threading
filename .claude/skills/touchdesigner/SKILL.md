@@ -231,6 +231,20 @@ Exemple : `build_render()` dans `td/build_imagethreading.py`.
   (faute volontaire) confirme que les erreurs sont bien remontées.
 - Logique : référence NumPy à côté du shader (même hash entier `uint`, mêmes
   arrondis) et comparaison des sorties.
+- **Émulateur du shader** (`python/engine_emulator.py` du dépôt
+  ImageThreading) : rejouer en float32 sur CPU le flux exact du shader
+  (disposition des buffers, compteurs, réduction) et comparer à la référence
+  float64. Les écarts révèlent : bugs d'indexation (visibles même en
+  float64) ou **fragilités numériques** (quasi-égalités, `ceil()` sur des
+  longueurs entières, arrondi des .5). Remèdes appliqués des deux côtés :
+  scores quantifiés (2⁻¹⁶) avant comparaison, `ceil(v − 2⁻¹⁰)`,
+  `floor(v + 0.5 + 2⁻¹⁰)`. Résultat : chemins identiques au sommet près.
+- Réduction en workgroup : avec un ordre total (score quantifié, hash, id), le
+  gagnant ne dépend pas du découpage entre threads → une boucle séquentielle
+  le reproduit.
+- Synchronisation d'une boucle d'itérations dans un workgroup : `barrier()`
+  **en tête de boucle** aussi, sinon le thread 0 peut réécrire une variable
+  `shared` de décision avant que les autres l'aient lue (blocage).
 
 ## Vérifié en pratique (dans TD)
 
