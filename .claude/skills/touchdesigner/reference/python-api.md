@@ -28,8 +28,8 @@ n.store(key, val) / n.fetch(key, default)  # stockage persistant dans le .toe
 Câblage (*Connector Class* : `connect(target)`, `disconnect()`, `connections`) :
 
 ```python
-b.inputConnectors[0].connect(a)        # a → entrée 0 de b
-a.outputConnectors[0].connect(b)       # équivalent
+b.inputConnectors[0].connect(a.outputConnectors[0])   # a → entrée 0 de b (forme sûre)
+b.inputConnectors[0].connect(a)        # marche si a n'est pas une COMP ; échoue avec une COMP (2025.33070)
 b.inputConnectors[1].connect(pegs)     # entrée 1
 ```
 

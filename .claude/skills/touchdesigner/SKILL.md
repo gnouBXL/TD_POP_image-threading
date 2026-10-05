@@ -193,6 +193,11 @@ Exemple : `build_render()` dans `td/build_imagethreading.py`.
 
 ## Pièges connus
 
+- **Câbler une COMP** : `dst.inputConnectors[i].connect(comp)` lève
+  `tdError: Invalid number or type of arguments … Value:type:baseCOMP`
+  (2025.33070). Toujours connecter connecteur à connecteur :
+  `dst.inputConnectors[i].connect(src.outputConnectors[0])`.
+
 - Le viewer d'une **Base COMP** reste noir même si elle sort un POP : regarder
   l'Out POP à l'intérieur ou un rendu.
 

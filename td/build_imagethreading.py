@@ -72,7 +72,10 @@ def make(comp, type_name, name, x, y):
 
 
 def wire(src, dst, index=0):
-    dst.inputConnectors[index].connect(src)
+    # Connect connector to connector: Connector.connect() rejects a COMP passed
+    # as the target ("Invalid number or type of arguments"), an OP works only
+    # for non-COMP sources.
+    dst.inputConnectors[index].connect(src.outputConnectors[0])
 
 
 def text_from_file(comp, name, path, x, y):
