@@ -267,6 +267,12 @@ Ajouter ici chaque point confirmé par un test dans TouchDesigner, avec la build
   Attribs int/float → Attribute POP (`deletepoint`) → **Line Break POP**
   (`connecmode = onelinestrip`, `uselinestripindex` sur `LineStripIndex`)
   donne des Line Strips qui se rendent avec un Line MAT.
+- **2025.33070 (macOS, donc Vulkan → Metal), moteur confirmé** : GLSL POP
+  en `numthreadsmode = manual`, workgroup 256×1×1, dispatch 1×1×1, avec
+  tableaux `shared`, `barrier()`, `memoryBarrierBuffer()` et lecture/écriture
+  des sorties en Read-Write (`outputattrs`, `initoutputattrs` On,
+  `prevpassoutput` On) dans une boucle Feedback POP (`targetpop`,
+  `initializepulse` puis `startpulse` une frame plus tard) : **ça marche**.
 - L'image par défaut du Movie File In (banane) a un **fond transparent** :
   toujours penser à l'alpha (TOPs prémultipliés) quand on dérive une valeur
   d'une image.
