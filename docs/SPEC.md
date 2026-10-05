@@ -3,8 +3,9 @@
 > Composant TouchDesigner (2025.3x, famille POP) qui tend un fil entre les points
 > d'un nuage 3D de façon à ce que sa **projection XY** reproduise une image 2D.
 
-Statut : spécification V1. Phase 0 (référence Python) faite ; section 5 vérifiée
-contre la documentation TouchDesigner (docs.derivative.ca, octobre 2026).
+Statut : spécification V1. Phases 0 à 5 faites et testées dans TouchDesigner
+2025.33070 ; section 5 vérifiée contre la documentation TouchDesigner
+(docs.derivative.ca, octobre 2026). Voir « État d'avancement » (section 6).
 
 ---
 
@@ -552,6 +553,33 @@ Chaque phase est validée visuellement avant de passer à la suivante.
 | 7 | Trails > 1, Seed, Invert | Variantes reproductibles |
 | 8 | Profilage et optimisation | Mesures documentées |
 | 9 | Exemple « craboutcha » : pegs en Sphere POP ou Grid POP + bruit en Z, caméra orbitale | L'image apparaît seulement de face |
+
+### État d'avancement (octobre 2026)
+
+| Phase | État |
+|---|---|
+| 0 | Fait. Référence modifiée ensuite : transparence = « rien à dessiner », scores quantifiés, arrondis robustes (section 4.2) |
+| 1 | Validée dans TD (debug_overlay : pegs en UV sur l'image) |
+| 2 | Validée dans TD (Line Strips rendus, chemin aléatoire) |
+| 3 - 5 | Moteur validé dans TD : shared memory / barrier OK sur un workgroup, boucle Feedback POP, Progressive. `python/engine_emulator.py` donne les mêmes chemins que la référence |
+| 6 | Écrit (All At Once en passes, Auto Reset sur les paramètres), à vérifier ; changement d'image ou de pegs : Reset manuel |
+| 7 - 9 | À faire |
+
+Retour de test : « ça marche, mais pas aussi bien que le projet d'origine ».
+Pistes, dans l'ordre :
+
+1. **Cohérence rendu / moteur** : le moteur éclaircit une bande de 1 px à la
+   résolution de travail (256), le rendu trace 1 px à 1024 → fils rendus ~4×
+   trop fins, image délavée. Caler la largeur des lignes du Line MAT sur
+   `résolution du rendu / Resolution`.
+2. **Réglages de l'image** : `Contrast`, `Gamma`, `Brightness` (Level TOP dans
+   `image_prep`) ; la banane de test est claire et peu contrastée.
+3. **Réglages par défaut** : plus de lignes (3000-4000), opacité à ajuster.
+4. **Méthode** : lignes anti-aliasées et/ou résolution de travail plus haute
+   dans le moteur (plus coûteux).
+5. Détecter le changement d'image ou de pegs pour l'Auto Reset ; vérifier
+   l'origine des « primitives en plus » signalées (probablement l'option
+   Draw Points du Line MAT, à confirmer avec l'info de `out_threads`).
 
 ### Images de test (dans cet ordre)
 

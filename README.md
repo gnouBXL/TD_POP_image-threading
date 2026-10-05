@@ -11,9 +11,9 @@ image 2D.
 Vu de face, le fil révèle l'image. Quand on tourne autour, on ne voit plus que la
 sculpture de fils.
 
-Statut : référence Python (phase 0) faite, architecture TouchDesigner vérifiée
-contre la documentation officielle, phases 1-2 écrites (à tester dans
-TouchDesigner). Voir [docs/SPEC.md](docs/SPEC.md).
+Statut : phases 0 à 5 faites et testées dans TouchDesigner 2025.33070 (macOS) :
+le moteur GLSL tourne et dessine l'image. Prochaine étape : qualité du rendu
+(voir « État d'avancement » dans [docs/SPEC.md](docs/SPEC.md)).
 
 ## Construire le composant dans TouchDesigner
 
